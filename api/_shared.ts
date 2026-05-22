@@ -42,6 +42,7 @@ export class ApiError extends Error {
 
 const SUBMISSIONS_COLLECTION = process.env.FIREBASE_SUBMISSIONS_COLLECTION || "designerSubmissions";
 const MAX_FILE_SIZE = 8 * 1024 * 1024;
+let resolvedBucketName: string | null = null;
 
 function parseServiceAccount() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -108,6 +109,22 @@ function getStorageBucketName() {
   return process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
 }
 
+function getStorageBucketCandidates() {
+  const serviceAccount = parseServiceAccount();
+  const projectId = getProjectId(serviceAccount);
+  const configuredBucket = getStorageBucketName();
+  return Array.from(
+    new Set(
+      [
+        resolvedBucketName,
+        configuredBucket,
+        projectId ? `${projectId}.firebasestorage.app` : null,
+        projectId ? `${projectId}.appspot.com` : null,
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
 export function getAdminDb(): Firestore {
   try {
     if (!getApps().length) {
@@ -135,7 +152,7 @@ export function getAdminDb(): Firestore {
 
 export function getUploadsBucket() {
   getAdminDb();
-  const bucketName = getStorageBucketName();
+  const bucketName = resolvedBucketName || getStorageBucketName();
   const bucket = bucketName ? getStorage().bucket(bucketName) : getStorage().bucket();
   if (!bucket.name) {
     throw new ApiError(503, "Firebase Storage bucket is not configured");
@@ -160,24 +177,42 @@ async function uploadCover(file: UploadedCover) {
     throw new ApiError(400, "单张封面图片不能超过 8MB");
   }
 
-  const bucket = getUploadsBucket();
   const token = crypto.randomUUID();
   const storagePath = `designer-submissions/${Date.now()}-${crypto.randomUUID()}${extFromUpload(file)}`;
 
-  await bucket.file(storagePath).save(file.buffer, {
-    contentType: file.mimeType,
-    resumable: false,
-    metadata: {
-      metadata: {
-        firebaseStorageDownloadTokens: token,
-      },
-    },
-  });
+  const candidates = getStorageBucketCandidates();
+  if (candidates.length === 0) {
+    throw new ApiError(503, "Firebase Storage bucket is not configured");
+  }
 
-  return {
-    coverUrl: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`,
-    storagePath,
-  };
+  let lastError: unknown = null;
+  for (const bucketName of candidates) {
+    const bucket = getStorage().bucket(bucketName);
+    try {
+      await bucket.file(storagePath).save(file.buffer, {
+        contentType: file.mimeType,
+        resumable: false,
+        metadata: {
+          metadata: {
+            firebaseStorageDownloadTokens: token,
+          },
+        },
+      });
+      resolvedBucketName = bucket.name;
+      return {
+        coverUrl: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`,
+        storagePath,
+      };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/bucket does not exist|not found/i.test(message)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new ApiError(503, "Firebase Storage bucket is not configured");
 }
 
 function serializeSubmission(id: string, data: Record<string, unknown>): DesignerSubmission {
@@ -259,12 +294,12 @@ export async function deleteSubmissionById(id: string) {
   if (snapshot.exists) {
     const data = snapshot.data();
     const works = Array.isArray(data?.works) ? (data?.works as SubmittedWork[]) : [];
-    const bucket = getUploadsBucket();
+    const buckets = getStorageBucketCandidates().map((bucketName) => getStorage().bucket(bucketName));
     await Promise.all(
       works
         .map((work) => work.storagePath)
         .filter((storagePath): storagePath is string => Boolean(storagePath))
-        .map((storagePath) => bucket.file(storagePath).delete({ ignoreNotFound: true })),
+        .flatMap((storagePath) => buckets.map((bucket) => bucket.file(storagePath).delete({ ignoreNotFound: true }))),
     );
   }
 
