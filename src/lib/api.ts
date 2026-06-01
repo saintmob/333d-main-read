@@ -18,11 +18,15 @@ export interface ExhibitionWork extends SubmittedWork {
 }
 
 export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://127.0.0.1:3102' : '');
-const DEFAULT_EVENT_API_BASE = 'https://show-plan-event-backend.liucheng-show-plan.workers.dev';
-const WORKS_SOURCE = import.meta.env.VITE_WORKS_SOURCE || 'firebase';
-const EVENT_API_BASE = import.meta.env.VITE_EVENT_API_BASE || DEFAULT_EVENT_API_BASE;
+const REVIEW_API_BASE = (import.meta.env.VITE_REVIEW_API_BASE || 'https://review-api.saintmob.workers.dev').replace(/\/+$/, '');
 
-interface EventWork {
+interface ReviewBootstrapStudent {
+  id?: string;
+  fullName?: string;
+  name?: string;
+}
+
+interface ReviewBootstrapWork {
   id?: string;
   studentId?: string;
   studentName?: string;
@@ -30,6 +34,11 @@ interface EventWork {
   workUrl?: string;
   coverUrl?: string;
   createdAt?: string;
+}
+
+interface ReviewBootstrapResponse {
+  works?: ReviewBootstrapWork[];
+  students?: ReviewBootstrapStudent[];
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -40,15 +49,26 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-function normalizeEventWorks(payload: unknown): ExhibitionWork[] {
-  const rawWorks = Array.isArray(payload)
-    ? payload
-    : Array.isArray((payload as { works?: unknown })?.works)
-      ? (payload as { works: unknown[] }).works
-      : [];
+function normalizeReviewWorks(payload: unknown): ExhibitionWork[] {
+  const bootstrap = Array.isArray(payload)
+    ? { works: payload, students: [] }
+    : (payload as ReviewBootstrapResponse) || { works: [], students: [] };
 
-  return rawWorks.flatMap((item, index) => {
-    const work = item as EventWork;
+  const studentNameById = new Map<string, string>();
+  for (const student of bootstrap.students || []) {
+    const id = typeof student.id === 'string' ? student.id.trim() : '';
+    const fullName = typeof student.fullName === 'string' && student.fullName.trim()
+      ? student.fullName.trim()
+      : typeof student.name === 'string' && student.name.trim()
+        ? student.name.trim()
+        : '';
+    if (id && fullName) {
+      studentNameById.set(id, fullName);
+    }
+  }
+
+  return (bootstrap.works || []).flatMap((item, index) => {
+    const work = item as ReviewBootstrapWork;
     const url = typeof work.workUrl === 'string' ? work.workUrl.trim() : '';
     const coverUrl = typeof work.coverUrl === 'string' ? work.coverUrl.trim() : '';
 
@@ -56,8 +76,13 @@ function normalizeEventWorks(payload: unknown): ExhibitionWork[] {
 
     const studentId = typeof work.studentId === 'string' && work.studentId.trim()
       ? work.studentId.trim()
-      : 'event';
-    const workIndex = typeof work.workIndex === 'number' ? work.workIndex : index + 1;
+      : 'review';
+    const workIndex = Number.isFinite(work.workIndex) && work.workIndex
+      ? Math.max(1, Math.floor(work.workIndex))
+      : index + 1;
+    const studentName = typeof work.studentName === 'string' && work.studentName.trim()
+      ? work.studentName.trim()
+      : studentNameById.get(studentId) || '匿名作者';
 
     return [{
       id: typeof work.id === 'string' && work.id.trim() ? work.id.trim() : `${studentId}-${workIndex}`,
@@ -66,22 +91,16 @@ function normalizeEventWorks(payload: unknown): ExhibitionWork[] {
       createdAt: typeof work.createdAt === 'string' && work.createdAt.trim()
         ? work.createdAt.trim()
         : new Date(0).toISOString(),
-      designerName: typeof work.studentName === 'string' && work.studentName.trim()
-        ? work.studentName.trim()
-        : '匿名作者',
+      designerName: studentName,
       submissionId: studentId,
     }];
   });
 }
 
 export async function fetchWorks() {
-  if (WORKS_SOURCE === 'event') {
-    const response = await fetch(`${EVENT_API_BASE}/api/works`);
-    return normalizeEventWorks(await parseResponse<{ works?: EventWork[] } | EventWork[]>(response));
-  }
-
-  const response = await fetch(`${API_BASE}/api/works`);
-  return parseResponse<ExhibitionWork[]>(response);
+  const response = await fetch(`${REVIEW_API_BASE}/api/bootstrap`);
+  const bootstrap = await parseResponse<ReviewBootstrapResponse | ReviewBootstrapWork[]>(response);
+  return normalizeReviewWorks(bootstrap).slice(0, 100);
 }
 
 export async function fetchSubmissions() {

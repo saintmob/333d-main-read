@@ -1,6 +1,6 @@
 {
-  "name": "3D Cosmos Exhibition",
-  "description": "A 3D interactive exhibition space built with Three.js and React Three Fiber. Navigate particles using WASD and mouse controls.",
+  "name": "Review Covers",
+  "description": "A 3D starfield exhibition for Review project work covers, powered by the public Review bootstrap API.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
