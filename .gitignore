@@ -10,3 +10,5 @@ data/submissions.json
 data/uploads/*
 !data/uploads/.gitkeep
 .vercel
+tasks/
+HANDOFF.md
