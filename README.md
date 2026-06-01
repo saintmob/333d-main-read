@@ -1,49 +1,75 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Review Covers
 
-# Run and deploy your AI Studio app
+Review Covers 是课程 Review 项目的 3D 作品封面星空展示页。首页会读取 Review Worker 的公开 `GET /api/bootstrap` 数据，把 `works[].coverUrl` 映射成沿星图路线自动飞行展示的封面卡片。
 
-This contains everything you need to run your app locally.
+## 功能
 
-View your app in AI Studio: https://ai.studio/apps/219a28d7-7815-4f4a-940e-cd1a89291e52
+- 自动读取 Review 公开作品封面数据。
+- 最多展示 100 个作品封面。
+- 页面加载后自动沿路线往返播放，不需要 Guide 或开始按钮。
+- 右下角可调节飞行速度、卡片尺寸和飞行跨度。
+- 远处封面按距离懒加载并回收纹理，避免一次性加载过重。
+- 点击封面可打开对应作品链接。
 
-## Run Locally
+## 数据源
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Configure Firebase Admin in `.env.local` using the same backend credentials as the existing `show-plan` project:
-   - `FIREBASE_SERVICE_ACCOUNT_JSON`
-   - `FIREBASE_PROJECT_ID`
-   - `FIREBASE_STORAGE_BUCKET`
-4. Optional: override the public Review bootstrap endpoint:
-   - `VITE_REVIEW_API_BASE=https://review-api.saintmob.workers.dev`
-5. Run the app:
-   `npm run dev:full`
-
-## API backend
-
-The app now exposes these API routes and stores data in Firebase:
-
-- `GET /api/works`
-- `GET /api/submissions`
-- `POST /api/submissions`
-- `DELETE /api/submissions/:id`
-
-Firestore stores submission metadata in `designerSubmissions` by default. Cover images are uploaded to Firebase Storage under `designer-submissions/`.
-
-## Public works stream
-
-The public exhibition scene reads `GET /api/bootstrap` from the Review Worker and maps the returned `works` array into the 3D cover stream used by `CosmosScene`.
-
-Default endpoint:
+默认数据源：
 
 ```text
-https://review-api.saintmob.workers.dev
+https://review-api.saintmob.workers.dev/api/bootstrap
 ```
 
-The scene keeps the `/admin` submission flow on the local API in this repo, so the public cover stream and admin console can be developed independently.
+可通过环境变量覆盖 API base：
+
+```bash
+VITE_REVIEW_API_BASE="https://review-api.saintmob.workers.dev"
+```
+
+公开展示只依赖 Review Worker。仓库内的 `/admin` 和本地 API 仍保留，用于旧的 Firebase 投稿管理流程，不影响公开封面流。
+
+## 本地运行
+
+```bash
+npm install
+npm run dev
+```
+
+默认开发地址：
+
+```text
+http://localhost:3000/
+```
+
+如果端口被占用，可以指定其他端口：
+
+```bash
+npm run dev -- --port=3001
+```
+
+## 检查与构建
+
+```bash
+npm run lint
+npm run build
+```
+
+`npm run build` 只构建前端静态资源；`npm run dev:full` 会同时启动旧本地 API 和 Vite 开发服务。
+
+## 环境变量
+
+常用：
+
+```bash
+VITE_REVIEW_API_BASE="https://review-api.saintmob.workers.dev"
+```
+
+旧管理后台相关：
+
+```bash
+VITE_API_BASE=""
+API_PORT="3102"
+FIREBASE_SERVICE_ACCOUNT_JSON="..."
+FIREBASE_PROJECT_ID="..."
+FIREBASE_STORAGE_BUCKET="..."
+FIREBASE_SUBMISSIONS_COLLECTION="designerSubmissions"
+```
